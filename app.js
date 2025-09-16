@@ -65,6 +65,7 @@ class WheelOfFortune {
         this.csvFileInput = document.getElementById('csvFileInput');
         this.toggleMemberMenuBtn = document.getElementById('toggleMemberMenu');
         this.memberManagement = document.getElementById('memberManagement');
+        this.soundToggleBtn = document.getElementById('soundToggle');
         
         // PIN protection elements
         this.pinModal = document.getElementById('pinModal');
@@ -77,6 +78,11 @@ class WheelOfFortune {
         // PIN configuration
         this.correctPin = '0001';
         
+        // Audio management
+        this.audioContext = null;
+        this.sounds = {};
+        this.soundEnabled = true;
+        
         this.init();
     }
     
@@ -85,10 +91,14 @@ class WheelOfFortune {
         this.drawWheel();
         this.showTeamCounts();
         this.spinBtn.addEventListener('click', () => this.spin());
+        this.soundToggleBtn.addEventListener('click', () => this.toggleSoundButton());
         
         // Initialize member management
         this.setupMemberManagement();
         this.displayMembers();
+        
+        // Initialize audio system
+        this.initAudio();
         
         // Show initial message
         this.selectedNameEl.textContent = "🎯 Click SPIN to select a team member!";
@@ -166,9 +176,9 @@ class WheelOfFortune {
             
             this.wheel.appendChild(pathElement);
             
-            // Add text label
+            // Add text label with radial orientation
             const textAngle = startAngle + anglePerSegment / 2;
-            const textRadius = radius * 0.68;
+            const textRadius = radius * 0.75; // Position text closer to center for better readability
             
             // Calculate text position
             const textAngleRad = (textAngle - 90) * Math.PI / 180;
@@ -182,34 +192,39 @@ class WheelOfFortune {
             textElement.setAttribute('class', 'segment-text');
             textElement.setAttribute('data-segment', index);
             
-            // Rotate text to be readable
-            let rotationAngle = textAngle;
+            // Rotate text to be radial (perpendicular to radius)
+            let rotationAngle = textAngle + 90; // Add 90 degrees to make text radial
             if (textAngle > 90 && textAngle < 270) {
-                rotationAngle = textAngle + 180;
+                rotationAngle = textAngle - 90; // Flip for bottom half
             }
             textElement.setAttribute('transform', `rotate(${rotationAngle}, ${textX}, ${textY})`);
             
             // Handle long names with smart text wrapping
             const name = segment.name;
-            if (name.length > 12 && name.includes(' ')) {
+            if (name.length > 10) {
+                // For radial text, we'll use a simpler approach
                 const words = name.split(' ');
-                const midPoint = Math.ceil(words.length / 2);
-                const line1 = words.slice(0, midPoint).join(' ');
-                const line2 = words.slice(midPoint).join(' ');
-                
-                // Create multi-line text
-                const tspan1 = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
-                tspan1.setAttribute('x', textX);
-                tspan1.setAttribute('dy', '-0.3em');
-                tspan1.textContent = line1;
-                
-                const tspan2 = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
-                tspan2.setAttribute('x', textX);
-                tspan2.setAttribute('dy', '1.1em');
-                tspan2.textContent = line2;
-                
-                textElement.appendChild(tspan1);
-                textElement.appendChild(tspan2);
+                if (words.length > 1) {
+                    const midPoint = Math.ceil(words.length / 2);
+                    const line1 = words.slice(0, midPoint).join(' ');
+                    const line2 = words.slice(midPoint).join(' ');
+                    
+                    // Create multi-line text
+                    const tspan1 = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+                    tspan1.setAttribute('x', textX);
+                    tspan1.setAttribute('dy', '-0.4em');
+                    tspan1.textContent = line1;
+                    
+                    const tspan2 = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+                    tspan2.setAttribute('x', textX);
+                    tspan2.setAttribute('dy', '1.2em');
+                    tspan2.textContent = line2;
+                    
+                    textElement.appendChild(tspan1);
+                    textElement.appendChild(tspan2);
+                } else {
+                    textElement.textContent = name;
+                }
             } else {
                 textElement.textContent = name;
             }
@@ -244,6 +259,9 @@ class WheelOfFortune {
         
         this.isSpinning = true;
         this.spinBtn.disabled = true;
+        
+        // Play spin sound
+        this.playSound('spin');
         
         // Reset display
         this.selectedNameEl.classList.remove('show', 'winner');
@@ -356,6 +374,9 @@ class WheelOfFortune {
             
             console.log('Displayed winner:', winner.name, winner.division);
             
+            // Play win sound
+            this.playSound('win');
+            
             // Add celebration effects
             this.celebrateWinner();
         }, 300);
@@ -382,6 +403,227 @@ class WheelOfFortune {
             `;
             resultContainer.style.animation = '';
         }, 2000);
+    }
+    
+    // Audio System Methods
+    initAudio() {
+        try {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.createSounds();
+        } catch (error) {
+            console.log('Audio not supported:', error);
+            this.soundEnabled = false;
+        }
+    }
+    
+    createSounds() {
+        // Create synthetic sound effects using Web Audio API
+        this.sounds = {
+            spin: this.createSpinSound(),
+            win: this.createWinSound(),
+            click: this.createClickSound(),
+            error: this.createErrorSound(),
+            success: this.createSuccessSound()
+        };
+    }
+    
+    createSpinSound() {
+        return () => {
+            if (!this.soundEnabled || !this.audioContext) return;
+            
+            const startTime = this.audioContext.currentTime;
+            const duration = 3;
+            
+            // Main wheel spinning sound (low frequency rumble)
+            const wheelOsc = this.audioContext.createOscillator();
+            const wheelGain = this.audioContext.createGain();
+            wheelOsc.connect(wheelGain);
+            wheelGain.connect(this.audioContext.destination);
+            
+            wheelOsc.frequency.setValueAtTime(80, startTime);
+            wheelOsc.frequency.exponentialRampToValueAtTime(40, startTime + duration);
+            wheelOsc.type = 'sine';
+            
+            wheelGain.gain.setValueAtTime(0.1, startTime);
+            wheelGain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+            
+            // Spoke clicking sound - starts fast and slows down
+            const totalSegments = this.segments.length;
+            const initialClickInterval = 0.05; // Start with clicks every 50ms
+            const finalClickInterval = 0.3; // End with clicks every 300ms
+            
+            let currentTime = startTime;
+            let clickInterval = initialClickInterval;
+            let clickCount = 0;
+            
+            // Create spoke clicks that slow down over time
+            while (currentTime < startTime + duration) {
+                // Create a short click sound
+                const clickOsc = this.audioContext.createOscillator();
+                const clickGain = this.audioContext.createGain();
+                clickOsc.connect(clickGain);
+                clickGain.connect(this.audioContext.destination);
+                
+                // Click sound - short burst of noise
+                clickOsc.frequency.setValueAtTime(800 + Math.random() * 400, currentTime);
+                clickOsc.type = 'square';
+                
+                // Quick click envelope
+                clickGain.gain.setValueAtTime(0, currentTime);
+                clickGain.gain.linearRampToValueAtTime(0.15, currentTime + 0.01);
+                clickGain.gain.exponentialRampToValueAtTime(0.01, currentTime + 0.05);
+                
+                clickOsc.start(currentTime);
+                clickOsc.stop(currentTime + 0.05);
+                
+                // Gradually increase click interval (slow down)
+                const progress = (currentTime - startTime) / duration;
+                clickInterval = initialClickInterval + (finalClickInterval - initialClickInterval) * progress;
+                
+                currentTime += clickInterval;
+                clickCount++;
+            }
+            
+            // Add some mechanical whirring sound
+            const whirrOsc = this.audioContext.createOscillator();
+            const whirrGain = this.audioContext.createGain();
+            whirrOsc.connect(whirrGain);
+            whirrGain.connect(this.audioContext.destination);
+            
+            whirrOsc.frequency.setValueAtTime(200, startTime);
+            whirrOsc.frequency.exponentialRampToValueAtTime(100, startTime + duration);
+            whirrOsc.type = 'triangle';
+            
+            whirrGain.gain.setValueAtTime(0.08, startTime);
+            whirrGain.gain.exponentialRampToValueAtTime(0.01, startTime + duration);
+            
+            // Start main oscillators
+            wheelOsc.start(startTime);
+            whirrOsc.start(startTime);
+            
+            // Stop main oscillators
+            wheelOsc.stop(startTime + duration);
+            whirrOsc.stop(startTime + duration);
+        };
+    }
+    
+    createWinSound() {
+        return () => {
+            if (!this.soundEnabled || !this.audioContext) return;
+            
+            // Create a celebratory chord
+            const frequencies = [523.25, 659.25, 783.99]; // C, E, G
+            const oscillators = [];
+            const gainNodes = [];
+            
+            frequencies.forEach((freq, index) => {
+                const oscillator = this.audioContext.createOscillator();
+                const gainNode = this.audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(this.audioContext.destination);
+                
+                oscillator.frequency.setValueAtTime(freq, this.audioContext.currentTime);
+                oscillator.type = 'sine';
+                
+                gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+                gainNode.gain.linearRampToValueAtTime(0.2, this.audioContext.currentTime + 0.1);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 1.5);
+                
+                oscillator.start(this.audioContext.currentTime);
+                oscillator.stop(this.audioContext.currentTime + 1.5);
+                
+                oscillators.push(oscillator);
+                gainNodes.push(gainNode);
+            });
+        };
+    }
+    
+    createClickSound() {
+        return () => {
+            if (!this.soundEnabled || !this.audioContext) return;
+            
+            const oscillator = this.audioContext.createOscillator();
+            const gainNode = this.audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(this.audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(800, this.audioContext.currentTime);
+            oscillator.type = 'square';
+            
+            gainNode.gain.setValueAtTime(0.1, this.audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.1);
+            
+            oscillator.start(this.audioContext.currentTime);
+            oscillator.stop(this.audioContext.currentTime + 0.1);
+        };
+    }
+    
+    createErrorSound() {
+        return () => {
+            if (!this.soundEnabled || !this.audioContext) return;
+            
+            const oscillator = this.audioContext.createOscillator();
+            const gainNode = this.audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(this.audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(150, this.audioContext.currentTime);
+            oscillator.frequency.setValueAtTime(100, this.audioContext.currentTime + 0.1);
+            oscillator.type = 'sawtooth';
+            
+            gainNode.gain.setValueAtTime(0.2, this.audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.3);
+            
+            oscillator.start(this.audioContext.currentTime);
+            oscillator.stop(this.audioContext.currentTime + 0.3);
+        };
+    }
+    
+    createSuccessSound() {
+        return () => {
+            if (!this.soundEnabled || !this.audioContext) return;
+            
+            const oscillator = this.audioContext.createOscillator();
+            const gainNode = this.audioContext.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(this.audioContext.destination);
+            
+            oscillator.frequency.setValueAtTime(400, this.audioContext.currentTime);
+            oscillator.frequency.linearRampToValueAtTime(600, this.audioContext.currentTime + 0.2);
+            oscillator.type = 'sine';
+            
+            gainNode.gain.setValueAtTime(0.15, this.audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, this.audioContext.currentTime + 0.4);
+            
+            oscillator.start(this.audioContext.currentTime);
+            oscillator.stop(this.audioContext.currentTime + 0.4);
+        };
+    }
+    
+    playSound(soundName) {
+        if (this.sounds[soundName]) {
+            this.sounds[soundName]();
+        }
+    }
+    
+    toggleSound() {
+        this.soundEnabled = !this.soundEnabled;
+        return this.soundEnabled;
+    }
+    
+    toggleSoundButton() {
+        const isEnabled = this.toggleSound();
+        this.soundToggleBtn.textContent = isEnabled ? '🔊' : '🔇';
+        this.soundToggleBtn.title = isEnabled ? 'Sound Effects On' : 'Sound Effects Off';
+        
+        // Play click sound when toggling (if sound is enabled)
+        if (isEnabled) {
+            this.playSound('click');
+        }
     }
     
     // Member Management Methods
@@ -442,9 +684,11 @@ class WheelOfFortune {
         const enteredPin = this.pinInput.value;
         
         if (enteredPin === this.correctPin) {
+            this.playSound('success');
             this.hidePinModal();
             this.toggleMemberMenu();
         } else {
+            this.playSound('error');
             this.pinError.style.display = 'block';
             this.pinInput.value = '';
             this.updatePinDots();
@@ -520,6 +764,9 @@ class WheelOfFortune {
         this.refreshWheel();
         this.displayMembers();
         this.showTeamCounts();
+        
+        // Play success sound
+        this.playSound('success');
         
         console.log(`Added member: ${name} to ${division}`);
     }
